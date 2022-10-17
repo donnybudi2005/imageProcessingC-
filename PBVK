@@ -1,0 +1,354 @@
+// PVBKConApp.cpp : This file contains the 'main' function. Program execution begins and ends there.
+//
+
+#include <iostream>
+#include <typeinfo>
+#include <ctime>
+
+#include <opencv2/opencv.hpp>
+#include <opencv2/core.hpp>
+#include <opencv2/imgcodecs.hpp>
+#include <opencv2/highgui.hpp>
+#include <math.h>
+#include <algorithm>
+
+#pragma comment(lib, "opencv_world460")
+
+using namespace cv;
+using namespace std;
+
+bool checkImageProperties(Mat& img1, Mat& img2)
+{
+	if (img1.empty())
+	{
+		printf("img1 is empty");
+		return false;
+	}
+
+	if (img2.empty())
+	{
+		printf("img2 is empty");
+		return false;
+	}
+
+	if (img1.cols != img2.cols)
+	{
+		printf("widths are different\n");
+		return false;
+	}
+
+	if (img1.rows != img2.rows)
+	{
+		printf("heights are different\n");
+		return false;
+	}
+
+	if (img1.channels() != img2.channels())
+	{
+		printf("Channels are different\n");
+		return false;
+	}
+
+	return true;
+}
+
+int rgb2gray(Mat& img_src, Mat& img_dst) {
+	Vec3b bgr_src, gray_src;
+
+	for (int y = 0; y < img_src.rows; y++)
+	{
+		for (int x = 0; x < img_src.cols; x++)
+		{
+			bgr_src = img_src.at<Vec3b>(y, x);
+
+			uchar b = bgr_src[0];
+			uchar g = bgr_src[1];
+			uchar r = bgr_src[2];
+
+			uchar gr = (uchar)((float)(b + g + r) / 3);
+
+			gray_src[0] = gray_src[1] = gray_src[2] = gr;
+
+			img_dst.at<Vec3b>(y, x) = gray_src;
+		}
+	}
+
+	return 0;
+}
+
+int rgb2hsv(Mat& img_src) {
+	Vec3b bgr_src, bgr_dst, gray_src;
+	for (int y = 0; y < img_src.rows; y++)
+	{
+		for (int x = 0; x < img_src.cols; x++)
+		{
+			bgr_src = img_src.at<Vec3b>(y, x);
+
+			//// Write pixel operation desired here ////
+			auto fb = (float)bgr_src[0];
+			auto fg = (float)bgr_src[1];
+			auto fr = (float)bgr_src[2];
+
+			float c_max = std::fmaxf(fr, std::fmaxf(fg, fb));
+			float c_min = std::fminf(fr, std::fminf(fg, fb));
+			float c_delta = c_max - c_min;
+
+			float v = 0;
+			float s = 0;
+			float h = 0;
+
+			v = c_max;
+
+			if (v != 0)
+				s = c_delta / c_max;
+			else if (v == 0)
+				s = 0;
+
+			if (c_max == fr)
+				h = 60 * (0 + ((fg - fb) / c_delta));
+			else if (c_max == fg)
+				h = 60 * (2 + ((fb - fr) / c_delta));
+			else if (c_max == fb)
+				h = 60 * (4 + ((fr - fg) / c_delta));
+
+			bgr_dst[2] = (uchar)(h);
+			bgr_dst[1] = (uchar)(s * 255);
+			bgr_dst[0] = (uchar)(v);
+		}
+	}
+
+}
+
+int calcHistogramIntens(Mat& img_src, Mat& img_dst, std::vector<double>& hist, int binNumber = 255)
+{
+	hist.clear();
+	hist.resize(binNumber);
+
+	Vec3b bgr_src, bgr_dst, gray_src;
+
+	for (int y = 0; y < img_src.rows; y++)
+	{
+		for (int x = 0; x < img_src.cols; x++)
+		{
+			bgr_src = img_src.at<Vec3b>(y, x);
+
+			uchar b = bgr_src[0];
+			uchar g = bgr_src[1];
+			uchar r = bgr_src[2];
+
+			uchar gr = (uchar)((float)(b + g + r) / 3);
+			
+			gray_src[0] = gray_src[1] = gray_src[2] = gr;
+
+			hist[gr]++;
+
+			img_dst.at<Vec3b>(y, x) = gray_src;
+		}
+	}
+
+	return 0;
+}
+
+void normalizeHistogram(std::vector<double> hist, std::vector<double>& normalHist, int mode) {
+	normalHist.clear();
+	normalHist.resize(hist.size());
+
+	double sumHist = 0, scaleSum;
+	double maxHist = -DBL_MAX, scaleMax;
+	for (auto h : hist)
+	{
+		switch (mode) {
+		case 0:
+			sumHist++;
+			break;
+
+		case 1:
+			if (maxHist < h) maxHist = h;
+			break;
+		}
+	}
+	if (sumHist > 0) {
+		scaleSum = 1.0 / sumHist;
+	}
+	if (maxHist > 0) {
+		scaleMax = 1.0 / maxHist;
+	}
+
+	for (int i = 0; i < hist.size(); i++) {
+		switch (mode) {
+		case 0:
+			normalHist[i] = hist[i] * scaleSum;
+			break;
+
+		case 1:
+			normalHist[i] = hist[i] * scaleMax;
+			break;
+		}
+	}
+}
+
+int createHistImg(std::vector<double> normalHist, Mat& img_dst, int height = 400) {
+	int step = 2;
+	int widht = normalHist.size() * step;
+
+	img_dst = Mat::zeros(Size(widht, height), CV_8UC3);
+
+	int bin, y1, y2;
+	for (int i = 0; i < normalHist.size(); i++) {
+		if (normalHist[i] == 0) continue;
+
+		bin = step * i;
+		y1 = height - 1;
+		y2 = y1 - cvRound(height * normalHist[i]);
+
+		line(img_dst, Point(bin, y1), Point(bin, y2), Scalar(255, 255, 255), 1);
+	}
+	return 0;
+}
+
+int histIntercection(vector<double> normalHist_1, vector<double> normalHist_2) {
+	double similarity = 0, min = 0;
+	for (int i = 0; i < normalHist_1.size(); i++) {
+		if (normalHist_1[1] < normalHist_2[i]) {
+			min = normalHist_1[1];
+		}
+		else {
+			min = normalHist_2[1];
+		}
+		similarity = similarity + min;
+	}
+	cout << "Similarity : " << similarity << "%" << endl;
+	return 0;
+}
+
+int prewitt(Mat& img_src, Mat& img_dst) 
+{
+	Vec3b gray_src, bgr_src;
+	uchar gx, gy;
+	for (int y = 0; y < img_src.rows; y++)
+	{
+		for (int x = 0; x < img_src.cols; x++)
+		{
+			
+			if (x == 0 || y == 0 || x == img_src.cols - 1 || y == img_src.rows - 1)
+			{
+				gray_src[0] = gray_src[1] = gray_src[2] = 0;
+			}
+			else
+			{
+				bgr_src = img_src.at<Vec3b>(y - 1, x - 1);
+				uchar gr11 = bgr_src[0];
+				bgr_src = img_src.at<Vec3b>(y - 1, x);
+				uchar gr21 = bgr_src[0];
+				bgr_src = img_src.at<Vec3b>(y - 1, x + 1);
+				uchar gr31 = bgr_src[0];
+
+				bgr_src = img_src.at<Vec3b>(y, x - 1);
+				uchar gr12 = bgr_src[0];
+				bgr_src = img_src.at<Vec3b>(y, x);
+				uchar gr22 = bgr_src[0];
+				bgr_src = img_src.at<Vec3b>(y, x + 1);
+				uchar gr32 = bgr_src[0];
+
+				bgr_src = img_src.at<Vec3b>(y + 1, x - 1);
+				uchar gr13 = bgr_src[0];
+				bgr_src = img_src.at<Vec3b>(y + 1, x);
+				uchar gr23 = bgr_src[0];
+				bgr_src = img_src.at<Vec3b>(y + 1, x + 1);
+				uchar gr33 = bgr_src[0];
+
+				gx = (-gr11 - 2*gr21 - gr31) + (gr13 + 2*gr23 + gr33);
+				gy = (-gr11 - 2*gr12 - gr13) + (gr31 + 2*gr32 + gr33);
+				gray_src[0] = gray_src[1] = gray_src[2] = sqrt(gx*gx + gy*gy);
+			}
+			img_dst.at<Vec3b>(y, x) = gray_src;
+		}
+	}
+	return 0;
+}
+
+
+int main()
+{
+	// Read the file
+	Mat inputImg_1 = imread("eagle.jpeg", IMREAD_COLOR);
+	Mat inputImg_2 = imread("eagle_edit.jpeg", IMREAD_COLOR);
+	Mat inputImg_3 = imread("bangun2d.jpg", IMREAD_COLOR);
+
+	vector<double> hist_1, hist_2, normalHist_1, normalHist_2;
+	Mat histogram_1, histogram_2;
+
+	// Check for invalid input
+	if (inputImg_1.empty() || inputImg_2.empty() || inputImg_3.empty())
+	{
+		cout << "Could not open or find the image" << std::endl;
+		return -1;
+	}
+
+	// Create new image
+	
+	Mat outputImg_1 = Mat::zeros(inputImg_1.size(), CV_8UC3);
+	Mat outputImg_2 = Mat::zeros(inputImg_2.size(), CV_8UC3);
+
+	namedWindow("output1", WINDOW_AUTOSIZE);
+	namedWindow("histogram_1", WINDOW_AUTOSIZE);
+
+	namedWindow("output2", WINDOW_AUTOSIZE);
+	namedWindow("histogram 2", WINDOW_AUTOSIZE);
+
+	calcHistogramIntens(inputImg_1, outputImg_1, hist_1);
+	normalizeHistogram(hist_1, normalHist_1, 1);
+	createHistImg(normalHist_1, histogram_1);
+
+	imshow("output1", outputImg_1);
+	imshow("histogram_1", histogram_1);
+
+	calcHistogramIntens(inputImg_2, outputImg_2, hist_2);
+	normalizeHistogram(hist_2, normalHist_2, 1);
+	createHistImg(normalHist_2, histogram_2);
+
+	imshow("output2", outputImg_2);
+	imshow("histogram 2", histogram_2);
+
+	histIntercection(normalHist_1, normalHist_2);
+
+	
+	
+	// Invoke RGB2GRAY function here
+	//pixelsOperation(inputImg, outputImg, 150, 10);
+
+	Mat grayImage = Mat::zeros(inputImg_3.size(), CV_8UC3);
+	Mat outputImg_3 = Mat::zeros(inputImg_3.size(), CV_8UC3);
+
+	namedWindow("input3", WINDOW_AUTOSIZE);
+	namedWindow("output3", WINDOW_AUTOSIZE);
+
+	rgb2gray(inputImg_3, grayImage);
+	prewitt(grayImage, outputImg_3);
+
+	imshow("input3", inputImg_3);
+	imshow("output3", outputImg_3);
+	
+	// Wait for a keystroke in the window
+	waitKey(0);
+	destroyAllWindows();
+	return 0;
+}
+
+
+
+//int main()
+//{
+//    std::cout << "Hello World!\n";
+//}
+
+// Run program: Ctrl + F5 or Debug > Start Without Debugging menu
+// Debug program: F5 or Debug > Start Debugging menu
+
+// Tips for Getting Started: 
+//   1. Use the Solution Explorer window to add/manage files
+//   2. Use the Team Explorer window to connect to source control
+//   3. Use the Output window to see build output and other messages
+//   4. Use the Error List window to view errors
+//   5. Go to Project > Add New Item to create new code files, or Project > Add Existing Item to add existing code files to the project
+//   6. In the future, to open this project again, go to File > Open > Project and select the .sln file
